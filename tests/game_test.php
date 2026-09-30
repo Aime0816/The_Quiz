@@ -1,0 +1,42 @@
+<?php
+require __DIR__.'/../api/game.php';
+function check($value,$message) { if (!$value) throw new Exception($message); }
+function rejects($s,$action,$args=[]) { try { applyGameAction($s,$action,$args); } catch (DomainException $e) { return; } throw new Exception('Expected rejection: '.$action); }
+$s=['title'=>'Test','teams'=>[['id'=>1,'name'=>'A'],['id'=>2,'name'=>'B']],'questions'=>[['id'=>1,'question'=>'Q','answer'=>'secret','image'=>'','category'=>'science','number'=>1],['id'=>2,'question'=>'Q2','answer'=>'secret2','image'=>'','category'=>'science','number'=>2]],'activeTeam'=>1,'round'=>null,'used'=>[],'history'=>[],'ended'=>false];
+check(!isset(publicGame($s,false)['questions'][0]['answer']),'Audience must not receive hidden answers');
+$s=applyGameAction($s,'pick',['question'=>1]);
+rejects($s,'pick',['question'=>2]);
+rejects($s,'select_team',['team'=>2]);
+rejects($s,'reveal');
+$s=applyGameAction($s,'correct',[]);
+check(publicGame($s,true)['teams'][0]['score']===10,'Correct earns ten');
+rejects($s,'correct');
+$s=applyGameAction($s,'undo',[]);
+check(publicGame($s,true)['teams'][0]['score']===0,'Undo clears provisional points');
+$s=applyGameAction($s,'wrong',[]);
+rejects($s,'pass',['team'=>1]);
+$s=applyGameAction($s,'pass',['team'=>2]);
+$s=applyGameAction($s,'correct',[]);
+check(publicGame($s,true)['teams'][1]['score']===5,'Steal earns five');
+$s=applyGameAction($s,'reveal',[]);
+check(publicGame($s,false)['questions'][0]['answer']==='secret','Reveal exposes only current answer');
+check(!isset(publicGame($s,false)['questions'][1]['answer']),'Future answer remains hidden');
+rejects($s,'pass',['team'=>1]);
+$s=applyGameAction($s,'finish',[]);
+check($s['activeTeam']===2,'Turns rotate from original team');
+check(publicGame($s,true)['teams'][1]['score']===5,'Finishing must not double count');
+rejects($s,'pick',['question'=>1]);
+$s=applyGameAction($s,'undo',[]);
+check(publicGame($s,true)['teams'][1]['score']===0,'Undo completed score');
+check(in_array(1,$s['used'],true),'Revealed question remains used');
+$s=applyGameAction($s,'pick',['question'=>2]);
+$s=applyGameAction($s,'wrong',[]);
+$s=applyGameAction($s,'pass',['team'=>1]);
+$s=applyGameAction($s,'wrong',[]);
+rejects($s,'pass',['team'=>2]);
+$s=applyGameAction($s,'reveal',[]);
+$s=applyGameAction($s,'finish',[]);
+check(array_sum(array_column(publicGame($s,true)['teams'],'score'))===0,'Wrong answers earn zero');
+$s=applyGameAction($s,'end',[]);
+rejects($s,'pick',['question'=>1]);
+echo "PASS: scoring, steals, duplicate judgment, turn rotation, undo, used questions, answer secrecy, session end\n";

@@ -1,0 +1,12 @@
+-- Run once against your EXISTING database. Does not alter questions or categories.
+CREATE TABLE IF NOT EXISTS quiz_sessions (
+  id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  admin_id INT NOT NULL,
+  title VARCHAR(120) NOT NULL,
+  viewer_token CHAR(48) NOT NULL UNIQUE,
+  revision INT NOT NULL DEFAULT 0,
+  state_json LONGTEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (admin_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
