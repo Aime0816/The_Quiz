@@ -1,166 +1,101 @@
-# THE QUIZ — React teams upgrade
+# Safe upgrade and setup
 
-The live quiz frontend now uses React + Vite. PHP and MySQL remain the backend.
-Your existing question/category administration pages remain available in PHP.
-There is no countdown, time limit, or time penalty.
+## 1. Back up before changing the school installation
 
-## Start on Windows / XAMPP
+1. Stop all question preparation and live competitions during the upgrade.
+2. Copy the entire old project folder, including all of `uploads/`, somewhere outside the web root.
+3. In phpMyAdmin, select your **actual existing database**, choose **Export → Custom**, select every table, and export SQL with both structure and data. Store it with the folder backup. Check that it contains your current questions and `quiz_sessions` records.
+4. First rehearse the upgrade against a separate database restored from that backup. The supplied `database/questions.sql` contains only five old sample questions. **Never import it over your existing database.**
 
-1. Back up your current project folder and export your current database in phpMyAdmin.
-2. Extract this project into `C:\xampp\htdocs\The_quiz2` (avoid a double nested folder).
-3. Start Apache and MySQL in XAMPP.
-4. In `conn.php`, set your database name, username, password and port. Your uploaded
-   configuration uses database `the_quiz_v2`, root, a blank password and port **3307**.
-   Use **3306** only if that is your actual MySQL port.
-5. Select your EXISTING database in phpMyAdmin and import `database/upgrade.sql`.
-   This creates only the `quiz_sessions` table. It does not replace your questions.
-6. Open `http://localhost/The_quiz2/login.php` and log in with your existing admin account.
-7. Click **Open React Live Quiz** on the dashboard, or open
-   `http://localhost/The_quiz2/play/`.
-8. Enter a session name and 2–12 unique team names, one per line. Start the session.
-9. Open **Audience screen** in another browser window. Place that window on your
-   projector with Windows **Extend** display mode. Keep the host screen private.
+## 2. Place the updated code
 
-The `play/` directory contains the compiled frontend: Node.js is NOT required
-just to run it with XAMPP. PHP 8.0+ with mysqli/mysqlnd and MySQL/MariaDB are required.
-Do not open the HTML using a file:// URL; use Apache.
+Extract the supplied `The_Quiz/` folder into `C:\xampp\htdocs\The_Quiz` or your existing folder name. Avoid double nesting. Keep your old installation until verification finishes. Copy any newer local uploads into the updated `uploads/questions/` without replacing a different existing file. All images from the supplied archive are retained.
 
-### Fresh database only
+`conn.php` defaults to:
 
-If you have no existing database, create `the_quiz_v2`, import `questions.sql`,
-then import `database/upgrade.sql`. The supplied old export has only five sample
-questions. It is not a backup of the full question bank corresponding to the many
-uploaded images. Some sample images may be absent. Replace samples using the admin UI.
+| Setting | Supplied value |
+|---|---|
+| Host | `127.0.0.1` |
+| User | `root` |
+| Password | empty |
+| Database | `the_quiz_v2` |
+| Port | `3307` |
 
-The old export lacks `categories.status`, which the existing PHP admin expects.
-For a fresh import of that export, run:
+Keep your actual database values. Use 3306 only if that is your MySQL port. Environment overrides are `QUIZ_DB_HOST`, `QUIZ_DB_USER`, `QUIZ_DB_PASSWORD`, `QUIZ_DB_NAME`, `QUIZ_DB_PORT`. Do not commit real hosted database passwords.
 
-```sql
-ALTER TABLE categories ADD COLUMN status ENUM('active','inactive') NOT NULL DEFAULT 'active';
+## 3. Run the repeatable migration
+
+Open Command Prompt in the project root:
+
+```bat
+C:\xampp\php\php.exe database\migrate.php --dry-run
+C:\xampp\php\php.exe database\migrate.php
 ```
 
-Skip that statement if the column already exists. Do not import the old
-`questions.sql` over your existing database. It also contains the old default
-admin account; change its password before exposing any fresh install publicly.
-`reset_admin.php` is now command-line-only; it retains its legacy reset behavior.
+The dry run prints planned changes and does not write data. The real migration checks the base tables, requires InnoDB, takes a migration lock, checks existing columns, and adds only missing fields/tables. It can be run again after interruption. MySQL DDL implicitly commits: the entire migration is not rolled back as one transaction. That is why a backup and a rehearsal are required. A second run skips added columns.
 
-## How to host
+The PHP migration is authoritative. `database/upgrade.sql` creates supplementary tables but **does not add all required columns by itself**. Do not use only that file for this upgrade.
 
-- Select the active team, then a category and question number.
-- The team answers aloud. Mark **Correct** (+10) or **Wrong** (0).
-- After a wrong answer, optionally offer **one steal** to a different team (+5 if correct).
-- Reveal the answer, then click **Next question**. The turn rotates from the original team.
-- **Undo judgment** clears the provisional result before the answer is revealed.
-- After reveal, **Cancel these points** clears points without hiding the answer.
-- **Undo last score** clears the most recently completed question's points. Its question
-  stays used because everyone has already seen the answer.
-- End the session to show the winner, or joint winners on a tie. There is no automatic tiebreaker.
-- Sessions can be resumed from the Sessions page; refresh does not erase scores.
-- The audience link is read-only and updates about every 2.5 seconds. Anyone holding
-  that link can view that session. Hidden answers are omitted from audience responses.
+| Table | Additions |
+|---|---|
+| `admins` | `role` (default admin), `active`, `auth_version` |
+| `categories` | `status` only if missing, `archived`, `version` |
+| `questions` | `points` (default 10), `version`, `archived`, `created_by`, `updated_by` |
+| `quiz_sessions` | Created if missing; existing schema/rows retained |
+| `quiz_audit` | New action ledger with actor, timestamp and JSON details |
+| `quiz_login_attempts` | New login-failure throttling table |
 
-## Session behavior
+No old columns, legacy statuses, usernames, password hashes, questions, categories, sessions or uploads are removed or rewritten. Existing login cookies require a fresh sign-in. Existing v3 session JSON is upgraded lazily on an authorized action, with its original representation retained internally.
 
-New sessions snapshot ALL questions, including legacy `inactive` questions because the
-old app used that status to mean already played. Each new session starts unused.
-If you used inactive as an editorial archive, remove those questions from your question
-bank before starting a new session, or extend creation with a curated question filter.
-Question numbers are stable within each session, assigned in ID order per category.
-Editing questions later affects new sessions, not existing session snapshots.
-Image references use existing files: deleting an image in admin can affect older sessions.
+## 4. Run and configure
 
-Scores are derived from recorded results, not arbitrary browser totals. API writes require
-admin login, a CSRF token, ownership of the session, and a matching revision. Database row
-locking plus revision checks prevents duplicate awards from double-clicks or stale tabs.
-The host should keep one control tab open. Sessions are visible only to their creator.
+1. Start Apache and MySQL in XAMPP.
+2. Open `http://localhost/The_Quiz/login.php`.
+3. Sign in with your existing credentials. No new shared/default account is inserted by migration.
+4. In **Users & roles**, create separate setter and marker accounts. Use at least 10 characters for new passwords. Give each person their account details privately.
+5. Check the question bank for **Image needs attention** warnings. Restore missing originals or upload replacements. Two filenames referenced by the sample export are absent from the attachment.
+6. In PHP configuration, set `upload_max_filesize=8M`, `post_max_size=10M`, `file_uploads=On`. Restart Apache after changing `php.ini`.
+7. Ensure the Apache/PHP process can write to `uploads/questions/`. Do not use broad world-writable permissions on a hosted server. The app does not need to write to its PHP source folders.
+8. Use the supplied compiled `play/`; Node is not required for normal use.
 
-## Develop the React frontend
+If an image is removed from a question or replaced, its previous file stays on disk for session snapshots. Do not manually delete old uploads unless you have checked every saved session reference.
 
-Install a current Node.js LTS version. In `frontend/` run:
+## Fresh installation only
+
+Create an empty `the_quiz_v2` database, import `database/questions.sql`, then run `database/migrate.php`. The supplied dump is unchanged historical input and contains an old account. Set a strong admin password immediately using the CLI-only recovery tool below. Remove or edit the five sample questions using the new archive/editor controls.
+
+## Recover an admin password from the command line
+
+Windows Command Prompt:
+
+```bat
+set QUIZ_RESET_PASSWORD=choose-a-new-long-password
+C:\xampp\php\php.exe reset_admin.php your-admin-username
+set QUIZ_RESET_PASSWORD=
+```
+
+Run the migration first. This creates or recovers that account as an active admin and invalidates its older logins. The tool is blocked over HTTP and has no hard-coded reset password. Do not use a password containing shell-special characters in this example without appropriate shell quoting; an existing admin can also reset another account in Users & roles.
+
+## School network and projector
+
+Use one central PHP/MySQL installation so multiple staff accounts share the same bank. Different PCs can connect to `http://HOST_LAN_IP/The_Quiz/` when Apache is permitted through the host firewall. If staff each use their own localhost installation, their databases will not synchronize.
+
+On the marker's laptop press **Windows + P → Extend**. Open **Audience screen**, move that window to the projector, then click **Fullscreen** inside it. Keep the marker tab on the laptop. On a different audience device use the same generated URL with the host's reachable LAN address, not `localhost`. Keep the server running throughout the event.
+
+## Development and tests
+
+See `README.md` for build commands. Run PHP's built-in development server with `router.php`; it is not a production internet server. Apache must allow the provided `.htaccess` rules. Other web servers need equivalent source-folder deny rules and non-executable uploads.
+
+Game rules:
 
 ```bash
-npm ci
-npm run build
+php tests/game_test.php
 ```
 
-The build writes to `play/`. Keep `play/` beside `api/` and `uploads/` when deploying.
-For development, run PHP from the project root:
+For the HTTP/browser suite, create a disposable database whose name ends `_test`, import the old sample SQL into that empty database, run the migration, and run `php tests/seed.php` with `QUIZ_DB_NAME` set to that test database. Start the PHP server using the same environment. Install `tests/requirements.txt` with Python pip, then run `python tests/integration_test.py`. The integration test creates records and changes test accounts; reset the disposable database before another run. It never belongs on your school database.
 
-```bash
-php -S 127.0.0.1:8000
-```
+For Chromium UI tests: `cd frontend && npm ci`, install Chromium via `npx playwright install chromium`, set `QUIZ_TEST_URL` to the test PHP URL, then run `node tests/browser_test.cjs` from the project root. Optionally set `QUIZ_CHROMIUM` to your browser executable and `QUIZ_TEST_PASSWORD` to the test seed password. The browser suite runs after the HTTP suite and uses records it creates. Screenshots are written under `tests/output` unless `QUIZ_TEST_OUTPUT` is set.
 
-Then in `frontend/` run `npm run dev` and open its displayed URL. The Vite proxy
-forwards API, images and login requests to PHP. For the full legacy admin pages use
-`http://127.0.0.1:8000/`; their asset routes are not all proxied by Vite.
+## Rollback
 
-React/Vite setup reference: https://react.dev/learn/build-a-react-app-from-scratch
-
-## Files added / modified
-
-- `frontend/`: React source, styles, Vite configuration and locked dependencies.
-- `play/`: compiled frontend, ready for Apache.
-- `api/index.php`: authenticated JSON API, session snapshots and revision checks.
-- `api/game.php`: scoring and round transition rules; public response filtering.
-- `database/upgrade.sql`: additive session table.
-- `tests/game_test.php`: scoring and state transition checks (`php tests/game_test.php`).
-- `dashboard.php`: link to the React quiz.
-- `login.php`: regenerates the PHP session ID at login.
-- `includes/functions.php`: safe image filename extension chosen from validated MIME type.
-- `reset_admin.php`: blocks web access to the old password-reset utility.
-
-The old public quiz pages and PHP admin are retained for compatibility. They are not a
-complete security modernization. Use `play/` for the new team game. This package has
-not been deployed to your computer or connected to your live database.
-
-## Validation performed
-
-- Production React/Vite build passed.
-- PHP syntax checks passed for all added and modified PHP files.
-- PHP game-rule tests passed using PHP WebAssembly: correct answers, steals, wrong
-  answers, duplicate judgment rejection, undo, turn rotation, used-question protection,
-  hidden-answer filtering and ended-session protection.
-- Chromium browser checks with a mocked API passed: create session, pick a question,
-  judge, reveal, next question, refresh recovery, mobile horizontal overflow and
-  read-only audience controls. No browser JavaScript errors were observed.
-- Desktop and mobile layouts were visually inspected.
-- Live PHP/MySQL integration, database migration execution and real admin login were
-  NOT tested here. Verify these on a backed-up local database before running an event.
-
-### Local verification checklist
-
-1. Log in, create a session with two teams and award a correct answer. Refresh:
-   the team must still have 10 points.
-2. On another question, mark wrong, pass to the other team and mark correct:
-   that team must receive exactly 5 points.
-3. Open the same host session in a second tab. A stale action must return a
-   refresh message rather than award points a second time.
-4. In the audience window, confirm the answer is hidden before reveal and visible after.
-5. Complete the question, start a new session, and confirm it is available again.
-6. Cancel a score, confirm the leaderboard updates, then end the session.
-
-## Layout refresh — September 30, 2026
-
-The project now uses a consistent dark navy and mint design across the homepage,
-login, admin dashboard, question bank, category pages, question editors, and live quiz.
-
-- Desktop sidebar with current-page highlighting; collapsible mobile navigation.
-- New `questions.php` question bank with search, category filtering and edit links.
-- Dashboard category distribution based on actual database counts.
-- Clear form labels, local icons, image previews and responsive layouts.
-- Mobile question cards keep edit actions visible without scrolling a wide table.
-- Live quiz includes Choose → Answer → Reveal progress and a desktop sticky leaderboard.
-- System fonts and local shared assets avoid remote font/icon dependencies.
-- Keyboard skip link, visible focus states, Escape-to-close navigation and reduced-motion support.
-
-No additional database migration is needed for this layout refresh. If the earlier
-React upgrade is already installed, keep your working `conn.php` and database,
-then copy the updated project files including `assets/`, `includes/`, `frontend/`
-and the rebuilt `play/` directory. Do not overwrite existing uploads with a stale
-copy. No need to rerun `questions.sql`. Hard-refresh the browser after updating.
-
-Layout validation: ten actual PHP page templates were rendered with fixture data
-and checked in Chromium at desktop (1440px) and mobile (390px) widths. Navigation,
-search, category filter, empty results and page overflow were checked. Screenshots
-were visually inspected. These checks do not exercise a real MySQL connection or
-submit admin forms. The preview image in `previews/` uses illustrative fixture data.
+Stop writes and Apache, keep a separate copy of the failed-upgrade database and uploads for investigation, then restore the matching **pre-upgrade** database export and entire old project/uploads backup. Do not run old scoring code against sessions already written in the new schema. A rollback to the pre-upgrade backup loses changes entered after that backup; export them for manual reconciliation before restoring. Test the restored copy before reopening access.

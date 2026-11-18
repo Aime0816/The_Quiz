@@ -1,134 +1,79 @@
 <?php
-include 'conn.php';
-include 'includes/functions.php';
+require "conn.php";
+require "includes/functions.php";
 requireAdmin();
-
-$message = '';
-$error = '';
-
-// Toggle category status
-if (isset($_POST['toggle_status']) && isset($_POST['category_id'])) {
-    $catId = intval($_POST['category_id']);
-    $cat = getCategoryById($conn, $catId);
-    if ($cat) {
-        $newStatus = ($cat['status'] ?? 'active') === 'active' ? 'inactive' : 'active';
-        setCategoryStatus($conn, $catId, $newStatus);
-    }
-}
-
-// Add new category
-if (isset($_POST['add_category'])) {
-    if (!validateCsrfToken($_POST['csrf_token'] ?? '')) {
-        $error = 'Invalid CSRF token.';
-    } else {
-        $name = trim($_POST['name'] ?? '');
-        $slug = strtolower(trim(preg_replace('/[^a-zA-Z0-9]+/', '-', $name), '-'));
-
-        if (empty($name) || empty($slug)) {
-            $error = 'Category name is required.';
-        } elseif (strlen($slug) < 2) {
-            $error = 'Category name too short.';
-        } else {
-            $stmt = mysqli_prepare($conn, "INSERT INTO categories (name, slug) VALUES (?, ?)");
-            mysqli_stmt_bind_param($stmt, "ss", $name, $slug);
-            if (mysqli_stmt_execute($stmt)) {
-                $message = 'Category added successfully!';
-            } else {
-                $error = 'Category already exists or error occurred.';
-            }
-            mysqli_stmt_close($stmt);
+$error = "";
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    checkCsrf();
+    $name = trim($_POST["name"] ?? "");
+    try {
+        if (!$name || strlen($name) > 150) {
+            throw new DomainException("Enter a category name up to 150 bytes.");
         }
+        $slug = strtolower(
+            trim(preg_replace("/[^a-zA-Z0-9]+/", "-", $name), "-"),
+        );
+        if (!$slug) {
+            $slug = "category-" . bin2hex(random_bytes(4));
+        }
+        dbQuery($conn, "INSERT INTO categories(name,slug) VALUES(?,?)", "ss", [
+            $name,
+            $slug,
+        ]);
+        flash("Category created. Reuse it in any competition.");
+        redirect("categories.php");
+    } catch (mysqli_sql_exception $e) {
+        if ($e->getCode() !== 1062) {
+            throw $e;
+        }
+        $error =
+            "That category already exists. Reuse or rename the existing category.";
+    } catch (DomainException $e) {
+        $error = $e->getMessage();
     }
 }
-
-// Get all categories
 $categories = getCategories($conn);
-
-$pageTitle = 'Manage Categories';
-include 'includes/header.php';
+$pageTitle = "Categories";
+include "includes/header.php";
 ?>
-
-<a href="dashboard.php" class="back-btn"><i class="bi bi-arrow-left"></i> Back</a>
-
-
-
-<div class="container mt-4" style="max-width: 900px;">
-    <h1><i class="bi bi-tags"></i> Manage Categories</h1>
-
-    <?php if ($message) echo showToast($message, 'success'); ?>
-    <?php if ($error) echo showToast($error, 'danger'); ?>
-
-<!-- Add Category Form -->
-    <div class="card mt-4 text-white" style="background: linear-gradient(135deg, rgba(255,192,203,0.15), rgba(255,255,255,0.1)); backdrop-filter: blur(10px); border: 1px solid rgba(255,192,203,0.4);">
-        <div class="card-body">
-            <h5 class="card-title" style="color: #ffb6c1;"><i class="bi bi-plus-circle"></i> Add New Category</h5>
-            <form method="POST" class="row g-3 mt-2">
-                <input type="hidden" name="csrf_token" value="<?= generateCsrfToken() ?>">
-                <div class="col-md-8">
-                    <label class="form-label" for="category-name">Category name</label><input id="category-name" type="text" name="name" class="form-control" placeholder="e.g. Science" required>
-                </div>
-                <div class="col-md-4">
-                    <button type="submit" name="add_category" class="btn btn-success w-100">
-                        <i class="bi bi-plus-lg"></i> Add Category
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-<!-- Categories List -->
-    <div class="card mt-4 text-white" style="background: linear-gradient(135deg, rgba(255,192,203,0.15), rgba(255,255,255,0.1)); backdrop-filter: blur(10px); border: 1px solid rgba(255,192,203,0.4);">
-        <div class="card-body">
-            <h5 class="card-title" style="color: #fff;"><i class="bi bi-list"></i> All Categories</h5>
-            <div class="table-responsive mt-3">
-                <table class="table table-dark table-hover">
-<thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Name</th>
-                            <th>Slug</th>
-                            <th>Status</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($categories as $cat): ?>
-                        <tr>
-<td><?= $cat['id'] ?></td>
-                            <td><?= htmlspecialchars($cat['name']) ?></td>
-                            <td><code><?= htmlspecialchars($cat['slug']) ?></code></td>
-                            <td>
-                                <?php if (($cat['status'] ?? 'active') === 'active'): ?>
-                                    <span class="badge bg-success">Active</span>
-                                <?php else: ?>
-                                    <span class="badge bg-secondary">Inactive</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><?= date('M d, Y', strtotime($cat['created_at'])) ?></td>
-<td>
-                                <form method="POST" style="display: inline;">
-                                    <input type="hidden" name="category_id" value="<?= $cat['id'] ?>">
-                                    <button type="submit" name="toggle_status" class="btn btn-sm <?= ($cat['status'] ?? 'active') === 'active' ? 'btn-outline-secondary' : 'btn-outline-success' ?>" title="<?= ($cat['status'] ?? 'active') === 'active' ? 'Disable' : 'Enable' ?>">
-                                        <i class="bi <?= ($cat['status'] ?? 'active') === 'active' ? 'bi-toggle-on' : 'bi-toggle-off' ?>"></i>
-                                        <?= ($cat['status'] ?? 'active') === 'active' ? 'Disable' : 'Enable' ?>
-                                    </button>
-                                </form>
-                                <a href="category_edit.php?id=<?= $cat['id'] ?>" class="btn btn-sm btn-outline-warning">
-                                    <i class="bi bi-pencil"></i> Edit
-                                </a>
-                                <a href="category_delete.php?id=<?= $cat['id'] ?>" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure? This will also delete all questions in this category!')">
-                                    <i class="bi bi-trash"></i> Delete
-                                </a>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+<div class="page-heading">
+<div>
+<p class="eyebrow">ORGANIZE YOUR COLLECTION</p>
+<h1>Reusable categories</h1>
+<p>Create each category once. Select it for any new session.</p>
 </div>
-
-<?php include 'includes/footer.php'; ?>
-
+</div>
+<?= $error
+    ? showToast($error, "danger")
+    : "" ?>
+<form class="panel inline-form" method="post">
+<input type="hidden" name="csrf_token" value="<?= h(
+    generateCsrfToken(),
+) ?>">
+<label>Category name<input name="name" maxlength="150" required>
+</label>
+<button class="primary">Add category</button>
+</form>
+<div class="category-grid">
+<?php foreach (
+    $categories
+    as $cat
+): ?>
+<article class="panel">
+<span class="pill">
+<?= $cat["archived"]
+    ? "Archived"
+    : "Available" ?>
+</span>
+<h2>
+<?= h(
+    $cat["name"],
+) ?>
+</h2>
+<a class="button" href="category_edit.php?id=<?= (int) $cat[
+    "id"
+] ?>">Edit category</a>
+</article>
+<?php endforeach; ?>
+</div>
+<?php include "includes/footer.php"; ?>

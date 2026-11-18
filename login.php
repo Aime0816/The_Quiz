@@ -1,40 +1,97 @@
 <?php
-include 'conn.php';
-include 'includes/functions.php';
-
-$error = '';
-
-if (isset($_POST['login'])) {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-
-    if (empty($username) || empty($password)) {
-        $error = 'Please enter both username and password.';
+require "conn.php";
+require "includes/functions.php";
+$error = "";
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    checkCsrf();
+    $username = trim($_POST["username"] ?? "");
+    $password = $_POST["password"] ?? "";
+    $key = hash(
+        "sha256",
+        strtolower($username) . "|" . ($_SERVER["REMOTE_ADDR"] ?? "local"),
+    );
+    $attempt = dbQuery(
+        $conn,
+        "SELECT failures, TIMESTAMPDIFF(SECOND,last_attempt,NOW()) age FROM quiz_login_attempts WHERE attempt_key=?",
+        "s",
+        [$key],
+    )
+        ->get_result()
+        ->fetch_assoc();
+    if ($attempt && $attempt["failures"] >= 10 && $attempt["age"] < 900) {
+        $error = "Too many attempts. Please wait 15 minutes.";
     } else {
-        $stmt = mysqli_prepare($conn, "SELECT id, password_hash FROM admins WHERE username = ?");
-        mysqli_stmt_bind_param($stmt, "s", $username);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        $admin = mysqli_fetch_assoc($result);
-        mysqli_stmt_close($stmt);
-
-        if ($admin && password_verify($password, $admin['password_hash'])) {
+        $user = dbQuery($conn, "SELECT * FROM admins WHERE username=?", "s", [
+            $username,
+        ])
+            ->get_result()
+            ->fetch_assoc();
+        if (
+            $user &&
+            $user["active"] &&
+            password_verify($password, $user["password_hash"])
+        ) {
             session_regenerate_id(true);
-            $_SESSION['admin_logged_in'] = true;
-            $_SESSION['admin_id'] = $admin['id'];
-            $_SESSION['admin_username'] = $username;
-            header('Location: dashboard.php');
-            exit;
-        } else {
-            $error = 'Invalid username or password.';
+            $_SESSION = [
+                "user_id" => (int) $user["id"],
+                "auth_version" => (int) $user["auth_version"],
+                "csrf_token" => bin2hex(random_bytes(32)),
+            ];
+            dbQuery(
+                $conn,
+                "DELETE FROM quiz_login_attempts WHERE attempt_key=?",
+                "s",
+                [$key],
+            );
+            redirect($user["role"] === "marker" ? "play/" : "dashboard.php");
         }
+        dbQuery(
+            $conn,
+            "INSERT INTO quiz_login_attempts(attempt_key,failures) VALUES(?,1) ON DUPLICATE KEY UPDATE failures=IF(TIMESTAMPDIFF(SECOND,last_attempt,NOW())>=900,1,failures+1),last_attempt=NOW()",
+            "s",
+            [$key],
+        );
+        $error = "Invalid username or password, or this account is disabled.";
     }
 }
-
-$pageTitle = 'Admin Login';
+$pageTitle = "Sign in";
+include "includes/header.php";
 ?>
-<?php include 'includes/header.php'; ?>
-<section class="login-grid"><div><p class="eyebrow">WELCOME TO YOUR HOST DESK</p><h1>Great quiz nights<br>start with you.</h1><p>Bring your questions, gather your teams, and give everyone something to think about.</p><div class="feature-strip"><article><span>PREPARE</span><h3>Your collection</h3><p>Questions for every kind of curious mind.</p></article><article><span>HOST</span><h3>Your session</h3><p>Teams, scores and a shared audience screen.</p></article></div></div><div class="login-card"><p class="eyebrow">HOST ACCESS</p><h2>Welcome back.</h2><p>Sign in to manage your quiz workspace.</p>
-<?php if ($error): ?><div class="alert alert-danger" role="alert"><?= htmlspecialchars($error) ?></div><?php endif; ?>
-<form method="POST"><label class="form-label" for="username">Username</label><input id="username" name="username" class="form-control" autocomplete="username" placeholder="Your username" value="<?= htmlspecialchars($_POST['username'] ?? '') ?>" required><label class="form-label" for="password">Password</label><input id="password" type="password" name="password" class="form-control" autocomplete="current-password" placeholder="Your password" required><button class="btn btn-primary" type="submit" name="login">Sign in to workspace →</button></form><a class="back-link" href="index.php">← Back to THE QUIZ</a></div></section>
-<?php include 'includes/footer.php'; ?>
+<section class="login-grid">
+<div>
+<p class="eyebrow">THINK TOGETHER. WIN TOGETHER.</p>
+<h1>A great competition<br>starts here.</h1>
+<p>One question bank. Your own account. A clear view for every team.</p>
+<div class="feature-strip">
+<article>
+<span>01 / PREPARE</span>
+<h3>Build the question bank</h3>
+<p>Work together with individual accounts.</p>
+</article>
+<article>
+<span>02 / PRESENT</span>
+<h3>Bring the room together</h3>
+<p>Keep the answer key on your private screen.</p>
+</article>
+</div>
+</div>
+<div class="panel login-card">
+<p class="eyebrow">STAFF WORKSPACE</p>
+<h2>Welcome back.</h2>
+<?= $error ? showToast($error, "danger") : "" ?>
+<form method="post">
+<input type="hidden" name="csrf_token" value="<?= h(
+    generateCsrfToken(),
+) ?>">
+<label for="username">Username</label>
+<input id="username" name="username" autocomplete="username" value="<?= h(
+    $_POST["username"] ?? "",
+) ?>" required maxlength="100">
+<label for="password">Password</label>
+<input id="password" type="password" name="password" autocomplete="current-password" required>
+<button class="primary" type="submit">Sign in →</button>
+</form>
+<p>Ask your admin for a question setter or marker account.</p>
+</div>
+</section>
+<?php include "includes/footer.php"; ?>

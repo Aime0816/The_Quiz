@@ -1,4 +1,4 @@
--- Run once against your EXISTING database. Does not alter questions or categories.
+-- Additive tables. For the full upgrade, run php database/migrate.php.
 CREATE TABLE IF NOT EXISTS quiz_sessions (
   id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   admin_id INT NOT NULL,
@@ -9,4 +9,18 @@ CREATE TABLE IF NOT EXISTS quiz_sessions (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX (admin_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS quiz_audit (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_id INT NOT NULL,
+  actor_id INT NOT NULL,
+  action VARCHAR(40) NOT NULL,
+  details_json LONGTEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (session_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS quiz_login_attempts (
+  attempt_key CHAR(64) NOT NULL PRIMARY KEY,
+  failures INT NOT NULL DEFAULT 0,
+  last_attempt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

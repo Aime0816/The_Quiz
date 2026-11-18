@@ -1,21 +1,73 @@
 <?php
-include 'conn.php'; include 'includes/functions.php'; requireAdmin();
-$pageTitle='Overview';
-$totalQuestions=(int)mysqli_fetch_assoc(mysqli_query($conn,'SELECT COUNT(*) AS count FROM questions'))['count'];
-$activeQuestions=(int)mysqli_fetch_assoc(mysqli_query($conn,"SELECT COUNT(*) AS count FROM questions WHERE status='active'"))['count'];
-$inactiveQuestions=$totalQuestions-$activeQuestions;
-$totalCategories=(int)mysqli_fetch_assoc(mysqli_query($conn,'SELECT COUNT(*) AS count FROM categories'))['count'];
-$catStats=mysqli_fetch_all(mysqli_query($conn,'SELECT c.name,c.slug,COUNT(q.id) AS total FROM categories c LEFT JOIN questions q ON c.slug=q.category GROUP BY c.id,c.name,c.slug ORDER BY total DESC,c.name'),MYSQLI_ASSOC);
-include 'includes/header.php';
+require "conn.php";
+require "includes/functions.php";
+$user = requireRole(["admin", "setter", "marker"]);
+if ($user["role"] === "marker") {
+    redirect("play/");
+}
+$pageTitle = isAdmin() ? "Admin dashboard" : "Question setter dashboard";
+$total = (int) $conn->query("SELECT COUNT(*) FROM questions")->fetch_row()[0];
+$available = (int) $conn
+    ->query("SELECT COUNT(*) FROM questions WHERE archived=0")
+    ->fetch_row()[0];
+$categories = getCategories($conn);
+include "includes/header.php";
 ?>
-<div class="page-heading"><div><p class="eyebrow">YOUR QUIZ, AT A GLANCE</p><h1>Welcome back, <?= htmlspecialchars($_SESSION['admin_username'] ?? 'Host') ?>.</h1><p>Prepare your questions. Bring your teams together. Make it memorable.</p></div><a class="btn btn-outline-info" href="insert.php">+ Add question</a></div>
-<section class="hero-banner"><div><p class="eyebrow">LET’S MAKE IT A GREAT ROUND</p><h2>A little knowledge.<br>A lot of team spirit.</h2><p>Your host desk is ready. Create a session, add your teams, and let the questions begin.</p><a class="btn btn-primary" href="play/">Open live quiz →</a></div><div class="hero-art" aria-hidden="true"><span>?</span><span>Q</span></div></section>
+<div class="page-heading">
+<div>
+<p class="eyebrow">
+<?= h(
+    strtoupper($pageTitle),
+) ?>
+</p>
+<h1>Welcome, <?= h(
+    $user["username"],
+) ?>.</h1>
+<p>Prepare a competition your students will remember.</p>
+</div>
+<a class="button primary" href="insert.php">+ Add question</a>
+</div>
+<section class="hero-banner">
+<p class="eyebrow">A LITTLE KNOWLEDGE. A LOT OF TEAM SPIRIT.</p>
+<h2>Good questions.<br>Great conversations.</h2>
+<p>Organize your collection, check the answers, and give every team a chance to shine.</p>
+<a class="button" href="questions.php">Explore your question bank →</a>
+</section>
 <div class="stat-grid">
-<?php foreach ([['Question bank',$totalQuestions,'Questions in your collection','▤'],['Categories',$totalCategories,'Topics to explore','◇'],['Active questions',$activeQuestions,'Legacy question status','✓'],['Inactive questions',$inactiveQuestions,'Previously used in classic mode','↺']] as [$label,$value,$note,$icon]): ?>
-<article class="stat-card"><div class="stat-label"><?= $label ?><span class="stat-icon" aria-hidden="true"><?= $icon ?></span></div><strong><?= $value ?></strong><small><?= $note ?></small></article>
-<?php endforeach; ?></div>
-<div class="dashboard-grid"><section class="panel"><div class="panel-heading"><div><h2>Your question collection</h2><p>Questions across all categories</p></div><a class="btn btn-sm btn-outline-info" href="questions.php">View all ↗</a></div>
-<?php if (!$catStats): ?><div class="empty-state"><span>◇</span><h3>Start with a category</h3><p>Add your first topic to begin building your collection.</p><a class="btn btn-primary" href="categories.php">Create category</a></div><?php else: foreach ($catStats as $cat): ?>
-<div class="category-bar"><div><a href="questions.php?cat=<?= urlencode($cat['slug']) ?>"><?= htmlspecialchars($cat['name']) ?></a><span><?= (int)$cat['total'] ?> questions</span></div><div class="bar-track"><span style="width:<?= $totalQuestions ? round(100*(int)$cat['total']/$totalQuestions,1) : 0 ?>%"></span></div></div>
-<?php endforeach; endif; ?></section><section class="panel"><div class="panel-heading"><h2>Make it happen</h2></div><a class="quick-link" href="insert.php"><span>+</span><div><b>Add a question</b><small>Build your next great round</small></div>↗</a><a class="quick-link" href="categories.php"><span>◇</span><div><b>Organize categories</b><small>Give every topic its place</small></div>↗</a><a class="quick-link" href="play/"><span>▷</span><div><b>Host a team quiz</b><small>Sessions, scores and audience view</small></div>↗</a><a class="quick-link" href="cat.php"><span>▦</span><div><b>Classic question board</b><small>Browse the original quiz mode</small></div>↗</a></section></div>
-<?php include 'includes/footer.php'; ?>
+<?php foreach (
+    [
+        ["Questions", $total],
+        ["Available in bank", $available],
+        ["Categories", count($categories)],
+    ]
+    as [$label, $value]
+): ?>
+<article class="panel">
+<p>
+<?= $label ?>
+</p>
+<strong class="stat-value">
+<?= $value ?>
+</strong>
+</article>
+<?php endforeach; ?>
+</div>
+<section class="panel">
+<p class="eyebrow">YOUR WORKSPACE</p>
+<h2>
+<?= isAdmin()
+    ? "Prepare, organize, and delegate."
+    : "Build together with confidence." ?>
+</h2>
+<p>Each question keeps an edit version. If a colleague saves first, your draft stays on screen so you can compare it before trying again. Existing competitions keep the questions and images they started with.</p>
+<?php if (
+    isAdmin()
+): ?>
+<div class="actions">
+<a class="button" href="users.php">Manage individual accounts</a>
+<a class="button" href="categories.php">Manage reusable categories</a>
+<a class="button" href="play/">Open marker dashboard ↗</a>
+</div>
+<?php endif; ?>
+</section>
+<?php include "includes/footer.php"; ?>
